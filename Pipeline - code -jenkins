@@ -1,0 +1,61 @@
+pipeline {
+    agent any
+
+    tools {
+        maven 'maven'
+    }
+
+    environment {
+        IMAGE_NAME        = 'rajeshb174/rb'   // Docker image name
+        CREDENTIALS_ID    = 'docker'          // Jenkins Docker credentials ID
+        SONAR_PROJECT_KEY = "sonar"
+        SONAR_HOST_URL    = "http://20.6.131.59:9000"
+        SONAR_TOKEN       = "1ca0ea581ae86e4a07122fc37234c8173302359d"
+    }
+
+    stages {
+
+        stage('Git Checkout') {
+            steps {
+                git changelog: false, poll: false, url: 'https://github.com/rajeshb174/onlinebookstore.git'
+            }
+        }
+
+        stage('Build with Maven') {
+            steps {
+                sh 'mvn clean install'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                sh """
+                    mvn clean verify sonar:sonar \
+                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                        -Dsonar.login=${SONAR_TOKEN}
+                """
+            }
+        }
+
+        stage('Docker Build & Run') {
+            steps {
+                // withDockerRegistry takes a single Map argument: [credentialsId: '...', url: '...']
+                withDockerRegistry([credentialsId: CREDENTIALS_ID, url: '']) {
+
+                    // Build Docker image
+                    sh "docker build -t ${IMAGE_NAME} ."
+
+                    // Push image to registry
+                    sh "docker push ${IMAGE_NAME}"
+
+                    // Stop & remove old container if exists
+                    sh "docker rm -f onlinebookstore-container || true"
+
+                    // Run new container (container name must NOT contain '/')
+                    sh "docker run -dt --name onlinebookstore-container -p 8081:8080 ${IMAGE_NAME}"
+                }
+            }
+        }
+    }
+}
